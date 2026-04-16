@@ -42,21 +42,26 @@ class BaselineCNN(nn.Module):
 # 2. Dilated CNN  (novelty: dilation > 1 to widen receptive field)
 # ---------------------------------------------------------------------------
 class DilatedCNN(nn.Module):
-    """CNN that replaces standard convolutions with dilated ones in deeper layers."""
+    """CNN that replaces standard convolutions with dilated ones in deeper layers.
 
-    def __init__(self, num_classes=10):
+    Args:
+        dilation: dilation rate for block-2 convolutions (1=standard, 2=default, 3=aggressive).
+                  padding is set equal to dilation so spatial dimensions are preserved.
+    """
+
+    def __init__(self, num_classes=10, dilation=2):
         super().__init__()
         self.features = nn.Sequential(
-            # Block 1 — standard
+            # Block 1 — standard convolutions
             nn.Conv2d(1, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(),
             nn.Conv2d(32, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(),
-            nn.MaxPool2d(2),                                         # 14x14
+            nn.MaxPool2d(2),                                              # 14x14
             nn.Dropout2d(0.25),
 
-            # Block 2 — dilated (dilation=2)
-            nn.Conv2d(32, 64, 3, padding=2, dilation=2), nn.BatchNorm2d(64), nn.ReLU(),
-            nn.Conv2d(64, 64, 3, padding=2, dilation=2), nn.BatchNorm2d(64), nn.ReLU(),
-            nn.MaxPool2d(2),                                         # 7x7
+            # Block 2 — dilated convolutions (padding=dilation keeps spatial size)
+            nn.Conv2d(32, 64, 3, padding=dilation, dilation=dilation), nn.BatchNorm2d(64), nn.ReLU(),
+            nn.Conv2d(64, 64, 3, padding=dilation, dilation=dilation), nn.BatchNorm2d(64), nn.ReLU(),
+            nn.MaxPool2d(2),                                              # 7x7
             nn.Dropout2d(0.25),
         )
         self.classifier = nn.Sequential(

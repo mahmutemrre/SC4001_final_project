@@ -38,8 +38,9 @@ def get_dataloaders(data_dir="./data", batch_size=64, num_workers=2, augment=Tru
     train_set = datasets.FashionMNIST(data_dir, train=True, download=True, transform=train_tf)
     test_set  = datasets.FashionMNIST(data_dir, train=False, download=True, transform=test_tf)
 
+    pin = torch.cuda.is_available()  # pin_memory only helps on CUDA
     train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True,
-                              num_workers=num_workers, pin_memory=True)
+                              num_workers=num_workers, pin_memory=pin)
     test_loader  = DataLoader(test_set,  batch_size=batch_size, shuffle=False,
-                              num_workers=num_workers, pin_memory=True)
+                              num_workers=num_workers, pin_memory=pin)
     return train_loader, test_loader

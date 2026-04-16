@@ -9,12 +9,14 @@ Usage:
 import argparse
 import os
 import json
+import numpy as np
 import torch
 import torch.nn as nn
 
-from src.dataset import get_dataloaders
+from src.dataset import get_dataloaders, CLASSES
 from src.models import BaselineCNN, DilatedCNN, SimplViT
 from src.train import train_one_epoch, evaluate
+from src.metrics import compute_confusion_matrix, per_class_accuracy
 
 
 MODEL_MAP = {
@@ -26,14 +28,16 @@ MODEL_MAP = {
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--model",      default="baseline", choices=MODEL_MAP.keys())
-    p.add_argument("--epochs",     type=int, default=30)
-    p.add_argument("--batch_size", type=int, default=64)
-    p.add_argument("--lr",         type=float, default=1e-3)
-    p.add_argument("--mixup",      action="store_true")
-    p.add_argument("--mixup_alpha",type=float, default=0.4)
-    p.add_argument("--data_dir",   default="./data")
-    p.add_argument("--save_dir",   default="./models")
+    p.add_argument("--model",       default="baseline", choices=MODEL_MAP.keys())
+    p.add_argument("--epochs",      type=int, default=30)
+    p.add_argument("--batch_size",  type=int, default=64)
+    p.add_argument("--lr",          type=float, default=1e-3)
+    p.add_argument("--mixup",       action="store_true")
+    p.add_argument("--mixup_alpha", type=float, default=0.4)
+    p.add_argument("--dilation",    type=int,   default=2,
+                   help="Dilation rate for DilatedCNN block-2 (ignored for other models)")
+    p.add_argument("--data_dir",    default="./data")
+    p.add_argument("--save_dir",    default="./models")
     return p.parse_args()
 
 
@@ -44,7 +48,10 @@ def main():
     print(f"Using device: {device}")
 
     train_loader, test_loader = get_dataloaders(args.data_dir, args.batch_size)
-    model = MODEL_MAP[args.model]().to(device)
+    if args.model == "dilated":
+        model = MODEL_MAP[args.model](dilation=args.dilation).to(device)
+    else:
+        model = MODEL_MAP[args.model]().to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
@@ -74,14 +81,36 @@ def main():
 
         if te_acc > best_acc:
             best_acc = te_acc
-            torch.save(model.state_dict(), f"{args.save_dir}/{args.model}_best.pth")
+            torch.save(model.state_dict(), f"{args.save_dir}/{tag}_best.pth")
 
-    tag = f"{args.model}_{'mixup' if args.mixup else 'nomixup'}"
-    with open(f"./results/{tag}_history.json", "w") as f:
-        json.dump(history, f, indent=2)
+    # -------------------------------------------------------------------------
+    # Post-training: confusion matrix & per-class accuracy on the best checkpoint
+    # -------------------------------------------------------------------------
+    model.load_state_dict(torch.load(f"{args.save_dir}/{tag}_best.pth",
+                                     map_location=device))
+    cm = compute_confusion_matrix(model, test_loader, num_classes=10, device=device)
+    pca = per_class_accuracy(cm)
 
-    print(f"\nBest test accuracy: {best_acc:.4f}")
-    print(f"Results saved to ./results/{tag}_history.json")
+    dilation_suffix = f"_d{args.dilation}" if args.model == "dilated" else ""
+    tag = f"{args.model}{dilation_suffix}_{'mixup' if args.mixup else 'nomixup'}"
+
+    results = {
+        "history": history,
+        "best_test_acc": best_acc,
+        "confusion_matrix": cm.tolist(),
+        "per_class_accuracy": {cls: float(f"{acc:.4f}")
+                                for cls, acc in zip(CLASSES, pca)},
+    }
+
+    out_path = f"./results/{tag}_results.json"
+    with open(out_path, "w") as f:
+        json.dump(results, f, indent=2)
+
+    print(f"\nBest test accuracy : {best_acc:.4f}")
+    print("Per-class accuracy:")
+    for cls, acc in zip(CLASSES, pca):
+        print(f"  {cls:<15s} {acc:.4f}")
+    print(f"Results saved to {out_path}")
 
 
 if __name__ == "__main__":
