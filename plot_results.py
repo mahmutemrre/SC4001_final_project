@@ -245,7 +245,68 @@ def plot_confusion_matrices(data, out_dir):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Figure 6: Dilation ablation — accuracy vs dilation rate
+# Figure 6: Per-class F1 score grouped bar chart (main experiments only)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def plot_f1_scores(data, out_dir):
+    data = main_experiments(data)
+    if not any("per_class_f1" in v for v in data.values()):
+        return  # old results without F1
+
+    tags   = list(data.keys())
+    n_tags = len(tags)
+    n_cls  = len(CLASSES)
+    x = np.arange(n_cls)
+    width = 0.8 / n_tags
+
+    fig, axes = plt.subplots(2, 1, figsize=(14, 11))
+    fig.suptitle("Per-class F1 scores & Macro F1 comparison", fontsize=13, fontweight="bold")
+
+    # Top: per-class F1 grouped bars
+    for i, tag in enumerate(tags):
+        if "per_class_f1" not in data[tag]:
+            continue
+        model, _, aug = parse_tag(tag)
+        f1_vals = list(data[tag]["per_class_f1"].values())
+        offset = (i - n_tags / 2 + 0.5) * width
+        axes[0].bar(x + offset, f1_vals, width,
+                    label=f"{model} ({aug})",
+                    color=PALETTE.get(model, "grey"),
+                    alpha=0.85 if aug == "nomixup" else 0.55,
+                    edgecolor="white")
+
+    axes[0].set_xticks(x)
+    axes[0].set_xticklabels(CLASSES, rotation=30, ha="right", fontsize=9)
+    axes[0].yaxis.set_major_formatter(mticker.PercentFormatter(xmax=1))
+    axes[0].set_ylabel("F1 Score")
+    axes[0].set_title("Per-class F1 score")
+    axes[0].legend(fontsize=8)
+    axes[0].grid(axis="y", alpha=0.3)
+
+    # Bottom: macro F1 bar chart
+    macro_tags   = [t for t in tags if "macro_f1" in data[t]]
+    macro_values = [data[t]["macro_f1"] for t in macro_tags]
+    macro_colors = [PALETTE.get(parse_tag(t)[0], "grey") for t in macro_tags]
+    macro_labels = [readable_label(t) for t in macro_tags]
+
+    bars = axes[1].bar(macro_labels, macro_values, color=macro_colors,
+                       edgecolor="white", width=0.5)
+    for bar, val in zip(bars, macro_values):
+        axes[1].text(bar.get_x() + bar.get_width() / 2,
+                     bar.get_height() + 0.001,
+                     f"{val:.4f}", ha="center", va="bottom", fontsize=9)
+    axes[1].set_ylim(min(macro_values) - 0.02, 1.0)
+    axes[1].yaxis.set_major_formatter(mticker.PercentFormatter(xmax=1))
+    axes[1].set_title("Macro F1 score by model & augmentation")
+    axes[1].set_ylabel("Macro F1")
+    axes[1].grid(axis="y", alpha=0.3)
+
+    fig.tight_layout()
+    save(fig, out_dir, "f1_scores.png")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Figure 7: Dilation ablation — accuracy vs dilation rate
 # ─────────────────────────────────────────────────────────────────────────────
 
 def plot_ablation(data, out_dir):
@@ -316,6 +377,7 @@ def main():
     plot_loss_curves(data, args.out_dir)
     plot_best_acc_bar(data, args.out_dir)
     plot_per_class(data, args.out_dir)
+    plot_f1_scores(data, args.out_dir)
     plot_confusion_matrices(data, args.out_dir)
     plot_ablation(data, args.out_dir)
 

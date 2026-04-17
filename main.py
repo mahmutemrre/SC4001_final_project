@@ -16,7 +16,7 @@ import torch.nn as nn
 from src.dataset import get_dataloaders, CLASSES
 from src.models import BaselineCNN, DilatedCNN, SimplViT
 from src.train import train_one_epoch, evaluate
-from src.metrics import compute_confusion_matrix, per_class_accuracy
+from src.metrics import compute_confusion_matrix, per_class_accuracy, per_class_f1
 
 
 MODEL_MAP = {
@@ -59,6 +59,9 @@ def main():
     os.makedirs(args.save_dir, exist_ok=True)
     os.makedirs("./results", exist_ok=True)
 
+    dilation_suffix = f"_d{args.dilation}" if args.model == "dilated" else ""
+    tag = f"{args.model}{dilation_suffix}_{'mixup' if args.mixup else 'nomixup'}"
+
     history = {"train_loss": [], "train_acc": [], "test_loss": [], "test_acc": []}
     best_acc = 0.0
 
@@ -88,28 +91,30 @@ def main():
     # -------------------------------------------------------------------------
     model.load_state_dict(torch.load(f"{args.save_dir}/{tag}_best.pth",
                                      map_location=device))
-    cm = compute_confusion_matrix(model, test_loader, num_classes=10, device=device)
+    cm  = compute_confusion_matrix(model, test_loader, num_classes=10, device=device)
     pca = per_class_accuracy(cm)
-
-    dilation_suffix = f"_d{args.dilation}" if args.model == "dilated" else ""
-    tag = f"{args.model}{dilation_suffix}_{'mixup' if args.mixup else 'nomixup'}"
+    f1, macro_f1 = per_class_f1(cm)
 
     results = {
         "history": history,
         "best_test_acc": best_acc,
+        "macro_f1": float(f"{macro_f1:.4f}"),
         "confusion_matrix": cm.tolist(),
         "per_class_accuracy": {cls: float(f"{acc:.4f}")
                                 for cls, acc in zip(CLASSES, pca)},
+        "per_class_f1": {cls: float(f"{s:.4f}")
+                         for cls, s in zip(CLASSES, f1)},
     }
 
     out_path = f"./results/{tag}_results.json"
     with open(out_path, "w") as f:
         json.dump(results, f, indent=2)
 
-    print(f"\nBest test accuracy : {best_acc:.4f}")
-    print("Per-class accuracy:")
-    for cls, acc in zip(CLASSES, pca):
-        print(f"  {cls:<15s} {acc:.4f}")
+    print(f"\nBest test accuracy : {best_acc:.4f}  |  Macro F1: {macro_f1:.4f}")
+    print(f"{'Class':<15s} {'Accuracy':>8}  {'F1':>8}")
+    print("-" * 35)
+    for cls, acc, score in zip(CLASSES, pca, f1):
+        print(f"  {cls:<13s} {acc:>8.4f}  {score:>8.4f}")
     print(f"Results saved to {out_path}")
 
 

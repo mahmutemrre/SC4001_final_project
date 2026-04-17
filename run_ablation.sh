@@ -12,11 +12,12 @@ echo " Dilation Rate Ablation Study"
 echo " Model: DilatedCNN | MixUp: OFF | Epochs: $EPOCHS"
 echo "======================================================"
 
-for D in 1 2 3; do
+for D in 1 3; do
     echo ""
     echo ">>> DilatedCNN  dilation=$D"
     python main.py --model dilated --dilation $D --epochs "$EPOCHS"
 done
+# d=2 result reused from main experiments (dilated_nomixup_results.json → dilated_d2_nomixup_results.json)
 
 echo ""
 echo "======================================================"
