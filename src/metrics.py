@@ -1,5 +1,5 @@
 """
-Evaluation metrics: confusion matrix and per-class accuracy.
+Evaluation metrics: confusion matrix, per-class accuracy, and per-class F1.
 """
 import torch
 import numpy as np
@@ -26,3 +26,20 @@ def per_class_accuracy(cm):
     with np.errstate(divide="ignore", invalid="ignore"):
         acc = np.where(row_sums > 0, cm.diagonal() / row_sums, 0.0)
     return acc
+
+
+def per_class_f1(cm):
+    """Return per-class F1 score and macro-F1 from a confusion matrix.
+
+    Precision_i = TP_i / (TP_i + FP_i) = cm[i,i] / cm[:,i].sum()
+    Recall_i    = TP_i / (TP_i + FN_i) = cm[i,i] / cm[i,:].sum()
+    F1_i        = 2 * P_i * R_i / (P_i + R_i)
+    """
+    tp = cm.diagonal().astype(float)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        precision = np.where(cm.sum(axis=0) > 0, tp / cm.sum(axis=0), 0.0)
+        recall    = np.where(cm.sum(axis=1) > 0, tp / cm.sum(axis=1), 0.0)
+        f1 = np.where((precision + recall) > 0,
+                      2 * precision * recall / (precision + recall), 0.0)
+    macro_f1 = f1.mean()
+    return f1, macro_f1
