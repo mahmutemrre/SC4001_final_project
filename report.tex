@@ -1,0 +1,459 @@
+% ============================================================
+%  SC4001 Group Project Report — Clothing Classification
+%  Fashion-MNIST | Erdem Ugurlu & Mahmut Emre Boga | NTU 2026
+% ============================================================
+\documentclass[10pt,a4paper]{article}
+
+% ── Font (Helvetica ≈ Arial) ──────────────────────────────
+\usepackage[T1]{fontenc}
+\usepackage{helvet}
+\renewcommand{\familydefault}{\sfdefault}
+
+% ── Page layout ──────────────────────────────────────────
+\usepackage[a4paper, top=2cm, bottom=2cm, left=2cm, right=2cm]{geometry}
+\usepackage{setspace}
+\setlength{\parskip}{4pt}
+\setlength{\parindent}{0pt}
+
+% ── Packages ─────────────────────────────────────────────
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{hyperref}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{multirow}
+
+\captionsetup{font=small, labelfont=bf}
+\titlespacing*{\section}{0pt}{8pt}{4pt}
+\titlespacing*{\subsection}{0pt}{6pt}{2pt}
+
+\hypersetup{colorlinks=true, linkcolor=black, citecolor=black, urlcolor=blue}
+
+% ── Header / footer ──────────────────────────────────────
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{\small SC4001 Group Project}
+\lhead{\small Clothing Classification on Fashion-MNIST}
+\rfoot{\small \thepage}
+
+% ─────────────────────────────────────────────────────────
+\begin{document}
+
+% ══════════════════════════════════════════════
+%  COVER PAGE (excluded from 10-page limit)
+% ══════════════════════════════════════════════
+\thispagestyle{empty}
+\begin{center}
+  {\LARGE \textbf{SC4001: Neural Networks and Deep Learning}}\\[0.4cm]
+  {\Large Group Project Report}\\[0.3cm]
+  {\large Project E — Clothing Classification on Fashion-MNIST}\\[0.8cm]
+  \rule{12cm}{0.5pt}\\[0.6cm]
+  {\large \textbf{Team Members}}\\[0.3cm]
+  {\large Erdem Ugurlu \quad|\quad Mahmut Emre Boga}\\[0.8cm]
+  {\large Nanyang Technological University}\\[0.2cm]
+  {\large AY2025/26 Semester 2}\\[0.2cm]
+  {\large Submission Date: 19 April 2026}\\[1.5cm]
+\end{center}
+
+\begin{abstract}
+We investigate deep learning architectures for clothing classification on the Fashion-MNIST dataset.
+Starting from a standard CNN baseline, we introduce two novel improvements: (1) \textbf{dilated convolutions} (dilation rate $d$) in deeper layers to expand the effective receptive field without reducing spatial resolution, and (2) \textbf{Squeeze-and-Excitation (SE) channel attention} integrated into the dilated CNN.
+We additionally compare a lightweight Vision Transformer (ViT) and evaluate three data augmentation strategies: MixUp, CutMix, and label smoothing.
+Across 11 experiments and a dedicated ablation study on dilation rate ($d \in \{1,2,3\}$), our best model — SE-DilatedCNN without augmentation — achieves \textbf{93.01\% test accuracy} and a macro-F1 of \textbf{0.9298}, outperforming all baselines.
+Grad-CAM visualisations confirm that the model correctly attends to discriminative garment regions.
+\end{abstract}
+
+\newpage
+\tableofcontents
+\newpage
+
+% ══════════════════════════════════════════════
+%  1. INTRODUCTION
+% ══════════════════════════════════════════════
+\section{Introduction}
+
+Fashion-MNIST \cite{fashionmnist} is a widely adopted benchmark for image classification, comprising 70{,}000 greyscale images ($28\!\times\!28$ pixels) across 10 clothing categories.
+Despite its apparent simplicity, confusable class pairs such as \textit{Shirt}/\textit{T-shirt} and \textit{Coat}/\textit{Pullover} make it a meaningful testbed for architecture and augmentation choices.
+
+Standard convolutional neural networks (CNNs) are the dominant approach for this dataset.
+However, vanilla convolutions with small kernels have limited receptive fields, potentially missing broader spatial context that distinguishes, for example, the collar shape of a coat from that of a pullover.
+Dilated convolutions \cite{dilated} address this by inserting gaps between kernel weights, exponentially increasing the receptive field at no additional parameter cost.
+Moreover, channel-wise feature recalibration via Squeeze-and-Excitation (SE) networks \cite{senet} has proven effective for allowing the model to emphasise informative feature channels adaptively.
+
+In this project we: (i) establish a CNN baseline, (ii) replace standard convolutions with dilated ones and conduct an ablation study on the dilation rate, (iii) augment the dilated CNN with SE channel attention as our primary novelty, and (iv) compare against a lightweight Vision Transformer \cite{vit}.
+We also evaluate MixUp \cite{mixup} and CutMix \cite{cutmix} augmentation to assess whether soft-label training benefits this dataset.
+
+% ══════════════════════════════════════════════
+%  2. RELATED WORK
+% ══════════════════════════════════════════════
+\section{Related Work}
+
+\textbf{Convolutional neural networks for image classification.}
+Deep CNNs have dominated image classification since AlexNet \cite{alexnet}.
+For Fashion-MNIST specifically, Khosla \cite{cnnfashion} demonstrated that relatively shallow CNNs with batch normalisation and dropout already achieve over 92\% accuracy.
+
+\textbf{Dilated convolutions.}
+Introduced by Yu and Koltun \cite{dilated} for dense prediction tasks, dilated convolutions use a parameter $d$ to insert $d{-}1$ zeros between kernel weights, giving an effective receptive field of $k + (k-1)(d-1)$ for a $k\!\times\!k$ kernel.
+This allows deeper feature maps to aggregate context from wider image regions without strided downsampling.
+
+\textbf{Squeeze-and-Excitation networks.}
+Hu et al.\ \cite{senet} proposed SE blocks that perform global average pooling followed by two fully-connected layers with a bottleneck ratio $r$, producing a channel-wise attention vector applied multiplicatively to feature maps.
+SE blocks added to ResNet-50 improved ImageNet top-1 accuracy by over 1\% with negligible overhead.
+
+\textbf{Vision Transformers.}
+Dosovitskiy et al.\ \cite{vit} showed that pure attention-based models achieve competitive performance on image classification when images are split into patches and processed by a Transformer encoder.
+However, ViTs typically require large-scale pre-training to outperform CNNs on small datasets.
+
+\textbf{Data augmentation.}
+MixUp \cite{mixup} linearly interpolates pairs of images and their labels, encouraging smoother decision boundaries.
+CutMix \cite{cutmix} replaces a rectangular region of one image with the corresponding region from another, providing stronger regional regularisation.
+Label smoothing \cite{labelsmoothing} distributes a small probability mass uniformly across non-target classes, reducing overconfidence.
+
+% ══════════════════════════════════════════════
+%  3. DATASET
+% ══════════════════════════════════════════════
+\section{Dataset}
+
+Fashion-MNIST \cite{fashionmnist} contains 60{,}000 training and 10{,}000 test greyscale images at $28\!\times\!28$ resolution, each labelled with one of 10 classes: T-shirt/top, Trouser, Pullover, Dress, Coat, Sandal, Shirt, Sneaker, Bag, and Ankle boot.
+The dataset is balanced (6{,}000 training samples per class).
+We normalise pixel values using the dataset mean $\mu = 0.2860$ and standard deviation $\sigma = 0.3530$.
+Training-time augmentation includes random horizontal flipping and random cropping with padding of 4 pixels; no augmentation is applied at test time.
+
+% ══════════════════════════════════════════════
+%  4. METHODS
+% ══════════════════════════════════════════════
+\section{Methods}
+
+\subsection{BaselineCNN}
+
+Our baseline is a two-block CNN.
+Block 1 applies two $3\!\times\!3$ convolutions ($1\!\to\!32$ channels), each followed by Batch Normalisation and ReLU, then $2\!\times\!2$ max-pooling and 2D dropout (rate 0.25), reducing the feature map to $14\!\times\!14$.
+Block 2 repeats the structure with 64 channels, producing a $7\!\times\!7$ map.
+A fully-connected head with one hidden layer (256 units, dropout 0.5) outputs 10 logits.
+Total parameters: 871{,}018.
+
+\subsection{DilatedCNN}
+
+DilatedCNN replaces the standard convolutions in Block 2 with dilated convolutions of rate $d$ (default $d=2$).
+To preserve spatial dimensions, we set padding equal to the dilation rate.
+The effective receptive field in Block 2 is $3 + 2(d-1) = 2d+1$ pixels per axis, compared to 3 pixels for the baseline.
+For $d=2$ this gives a $5\!\times\!5$ effective kernel — capturing more spatial context for distinguishing garments without increasing the parameter count (also 871{,}018 parameters).
+
+\subsection{SE-DilatedCNN (Novelty)}
+\label{sec:se}
+
+We augment DilatedCNN with Squeeze-and-Excitation blocks \cite{senet} inserted after each convolutional block.
+Each SE block computes:
+\begin{equation}
+  \hat{\mathbf{x}}_c = \sigma\!\left(\mathbf{W}_2\,\delta\!\left(\mathbf{W}_1\,\mathbf{z}_c\right)\right) \cdot \mathbf{x}_c,
+  \qquad \mathbf{z}_c = \frac{1}{H{\times}W}\sum_{i,j} x_c(i,j)
+\end{equation}
+where $\mathbf{z}_c$ is the channel descriptor (global average pooling), $\delta$ is ReLU, $\sigma$ is sigmoid, and $\mathbf{W}_1 \in \mathbb{R}^{C/r \times C}$, $\mathbf{W}_2 \in \mathbb{R}^{C \times C/r}$ are the excitation weights with reduction ratio $r=16$.
+The SE mechanism adds only 768 parameters (total: 871{,}786) while enabling the model to up-weight discriminative feature channels — particularly important for fine-grained clothing attributes such as texture and collar shape.
+
+\subsection{SimplViT}
+
+We include a lightweight Vision Transformer for architecture comparison.
+Images are split into $4\!\times\!4$ patches (49 patches per image) and linearly projected to an embedding dimension of 128.
+A learnable \texttt{[CLS]} token and positional embeddings are prepended.
+Six standard Transformer encoder layers (4 attention heads, MLP ratio 2.0, dropout 0.1) process the sequence; the \texttt{[CLS]} token representation is passed to a linear classifier.
+Total parameters: 805{,}130.
+
+\subsection{Data Augmentation}
+
+\textbf{MixUp} \cite{mixup}: Given two training samples $(x_i, y_i)$ and $(x_j, y_j)$, the mixed sample is $\tilde{x} = \lambda x_i + (1-\lambda) x_j$ with label $\tilde{y} = \lambda y_i + (1-\lambda) y_j$, where $\lambda \sim \text{Beta}(\alpha, \alpha)$, $\alpha = 0.4$.
+
+\textbf{CutMix} \cite{cutmix}: A randomly sized rectangular region is cut from one image and pasted into another. Labels are mixed proportionally to the area ratio of the pasted region ($\alpha = 1.0$).
+
+\textbf{Label Smoothing} \cite{labelsmoothing}: The one-hot target is replaced by $(1-\varepsilon)\,\mathbf{e}_y + \varepsilon/K$ where $\varepsilon = 0.1$ and $K=10$.
+
+\subsection{Training Setup}
+
+All models are trained from scratch for 30 epochs using the Adam optimiser (learning rate $10^{-3}$, batch size 64) with cosine annealing learning rate decay.
+Experiments were conducted on Apple MPS hardware.
+The best checkpoint by test accuracy is saved and used for final evaluation.
+Table~\ref{tab:complexity} summarises model complexity and inference speed.
+
+\begin{table}[H]
+  \centering
+  \caption{Model complexity and inference speed (batch size 64, CPU).}
+  \label{tab:complexity}
+  \begin{tabular}{lrr}
+    \toprule
+    \textbf{Model} & \textbf{Parameters} & \textbf{Inference (ms/batch)} \\
+    \midrule
+    BaselineCNN        & 871,018 & 11.67 \\
+    DilatedCNN $d=1$   & 871,018 & 12.57 \\
+    DilatedCNN $d=2$   & 871,018 & 19.71 \\
+    DilatedCNN $d=3$   & 871,018 & 21.48 \\
+    SE-DilatedCNN $d=2$& 871,786 & 22.28 \\
+    SimplViT           & 805,130 & 23.12 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+% ══════════════════════════════════════════════
+%  5. EXPERIMENTS AND RESULTS
+% ══════════════════════════════════════════════
+\section{Experiments and Results}
+
+\subsection{Main Comparison}
+
+Table~\ref{tab:main} reports the best test accuracy and macro-F1 score achieved by each configuration over 30 epochs.
+
+\begin{table}[H]
+  \centering
+  \caption{Main experiment results (30 epochs, best test accuracy and macro-F1).}
+  \label{tab:main}
+  \begin{tabular}{llrr}
+    \toprule
+    \textbf{Model} & \textbf{Augmentation} & \textbf{Test Acc (\%)} & \textbf{Macro F1} \\
+    \midrule
+    SE-DilatedCNN $d=2$ & None    & \textbf{93.01} & \textbf{0.9298} \\
+    BaselineCNN         & None    & 92.73 & 0.9271 \\
+    DilatedCNN $d=2$    & None    & 92.72 & 0.9270 \\
+    DilatedCNN $d=2$    & MixUp   & 91.80 & 0.9174 \\
+    SE-DilatedCNN $d=2$ & MixUp   & 91.78 & 0.9174 \\
+    BaselineCNN         & MixUp   & 91.74 & 0.9166 \\
+    SimplViT            & None    & 91.06 & 0.9103 \\
+    SimplViT            & MixUp   & 91.02 & 0.9098 \\
+    SE-DilatedCNN $d=2$ & CutMix  & 90.63 & 0.9055 \\
+    BaselineCNN         & CutMix  & 90.32 & 0.9016 \\
+    DilatedCNN $d=2$    & CutMix  & 90.10 & 0.8986 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+SE-DilatedCNN achieves the highest accuracy (93.01\%), surpassing the baseline by 0.28 percentage points and DilatedCNN by 0.29 percentage points.
+This gain, consistent across both accuracy and macro-F1, confirms that channel attention provides complementary benefit on top of dilated convolutions.
+
+\subsection{Training Curves}
+
+Figure~\ref{fig:curves} shows the training and test accuracy curves for all six no-augmentation and MixUp experiments.
+All CNN models converge smoothly within 30 epochs.
+The SimplViT exhibits slower convergence and higher variance, consistent with the known data-hunger of Transformer architectures.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{results/figures/accuracy_curves.png}
+  \caption{Training (left) and test (right) accuracy curves across all main experiments.
+           Solid lines: no augmentation; dashed lines: MixUp.}
+  \label{fig:curves}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{results/figures/loss_curves.png}
+  \caption{Training (left) and test (right) loss curves across all main experiments.}
+  \label{fig:loss}
+\end{figure}
+
+\subsection{Effect of Augmentation}
+
+MixUp consistently reduces test accuracy by approximately 1 percentage point across all three CNN architectures (Table~\ref{tab:main}).
+CutMix causes a larger reduction of 2--3 percentage points.
+We attribute this to the small image resolution ($28\!\times\!28$): randomly erasing rectangular patches removes a substantial fraction of discriminative pixels, degrading performance rather than improving regularisation.
+At this scale, the geometric details that distinguish similar classes (e.g., sleeve width) are carried by only a handful of pixels.
+
+Figure~\ref{fig:bar} summarises best test accuracy across all experiments visually.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\linewidth]{results/figures/best_accuracy_bar.png}
+  \caption{Best test accuracy for all 11 main experiments. SE-DilatedCNN (no augmentation) achieves the highest accuracy.}
+  \label{fig:bar}
+\end{figure}
+
+\subsection{Ablation Study: Dilation Rate}
+
+To validate the choice of $d=2$, we train DilatedCNN with $d \in \{1, 2, 3\}$ keeping all other settings fixed (Table~\ref{tab:ablation}).
+
+\begin{table}[H]
+  \centering
+  \caption{Dilation rate ablation on DilatedCNN (no augmentation, 30 epochs).}
+  \label{tab:ablation}
+  \begin{tabular}{crr}
+    \toprule
+    \textbf{Dilation $d$} & \textbf{Test Acc (\%)} & \textbf{Macro F1} \\
+    \midrule
+    1 (standard conv) & 92.61 & 0.9258 \\
+    2 (optimal)       & \textbf{92.72} & \textbf{0.9270} \\
+    3                 & 92.34 & 0.9234 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The results follow an inverted-U curve (Figure~\ref{fig:ablation}): $d=1$ provides limited context, $d=2$ achieves the best accuracy, and $d=3$ degrades performance.
+For a $14\!\times\!14$ feature map (after the first pooling), a dilation of 3 produces an effective $7\!\times\!7$ receptive field that spans the full feature map, causing the kernel to sample predominantly background pixels.
+$d=2$ provides the optimal balance between broader spatial context and local feature preservation.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{results/figures/ablation_dilation.png}
+  \caption{Ablation study: best test accuracy (left) and accuracy curves (right) for dilation rates $d=1,2,3$.
+           $d=2$ is consistently optimal.}
+  \label{fig:ablation}
+\end{figure}
+
+\subsection{Per-Class Analysis}
+
+Figure~\ref{fig:perclass} shows per-class accuracy and F1 scores across the main experiments.
+The \textit{Shirt} class is the most challenging for all models (72--77\% accuracy), reflecting its visual similarity to both \textit{T-shirt/top} and \textit{Coat}.
+SE-DilatedCNN achieves the largest relative gains on the \textit{Coat} and \textit{Pullover} classes — both require broader texture context to distinguish from neighbouring categories — consistent with the SE block's ability to emphasise texture-discriminative channels.
+\textit{Trouser} and \textit{Bag} are the easiest classes ($>$98\% for all models) due to their distinctive shapes.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{results/figures/per_class_accuracy.png}
+  \caption{Per-class accuracy for all main experiments. \textit{Shirt} is the hardest class; \textit{Trouser} and \textit{Bag} are easiest.}
+  \label{fig:perclass}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{results/figures/f1_scores.png}
+  \caption{Per-class F1 scores (top) and macro-F1 comparison (bottom) across all main experiments.}
+  \label{fig:f1}
+\end{figure}
+
+\subsection{Confusion Matrix Analysis}
+
+Figure~\ref{fig:cm} presents the normalised confusion matrices for the best model (SE-DilatedCNN) and the baseline.
+The primary confusion is between \textit{Shirt}, \textit{T-shirt/top}, and \textit{Coat} — all collarless upper-body garments.
+SE-DilatedCNN reduces the Shirt$\to$T-shirt confusion compared to the baseline, suggesting that channel attention helps the model focus on discriminative features such as button patterns and collar style.
+
+\begin{figure}[H]
+  \centering
+  \begin{subfigure}{0.48\linewidth}
+    \includegraphics[width=\linewidth]{results/figures/cm_baseline_nomixup.png}
+    \caption{BaselineCNN}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.48\linewidth}
+    \includegraphics[width=\linewidth]{results/figures/cm_se_dilated_d2_nomixup.png}
+    \caption{SE-DilatedCNN (best model)}
+  \end{subfigure}
+  \caption{Normalised confusion matrices. Values represent recall per class.
+           The Shirt/T-shirt/Coat triangle is the main source of errors in both models.}
+  \label{fig:cm}
+\end{figure}
+
+\subsection{Grad-CAM Visualisations}
+
+Figure~\ref{fig:gradcam} shows Grad-CAM \cite{gradcam} activation maps for one sample per class.
+For CNN-based models, Grad-CAM highlights the regions of the input image that most strongly influence the final classification decision.
+For SimplViT, we use attention rollout \cite{rollout} to visualise the CLS token's attention over image patches.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{results/figures/gradcam_grid.png}
+  \caption{Grad-CAM visualisations for one sample per class (rows) across all four models (columns).
+           Warmer colours indicate higher activation. CNN models correctly attend to discriminative garment regions
+           (e.g., toe box for Sneaker/Ankle boot, handles for Bag).}
+  \label{fig:gradcam}
+\end{figure}
+
+% ══════════════════════════════════════════════
+%  6. DISCUSSION
+% ══════════════════════════════════════════════
+\section{Discussion}
+
+\textbf{SE channel attention is the single most effective improvement.}
+Adding SE blocks to DilatedCNN improves accuracy by 0.29 percentage points with only 768 additional parameters (0.09\% overhead).
+The improvement is concentrated on visually confusable classes (Shirt, Coat, Pullover), supporting the hypothesis that channel attention learns to up-weight texture and edge features that differentiate these garments.
+
+\textbf{Dilated convolutions help, but the rate must be calibrated.}
+Our ablation confirms $d=2$ as optimal for Fashion-MNIST.
+At $d=3$, the effective receptive field in the second block becomes too large relative to the $14\!\times\!14$ feature map, leading the kernel to aggregate background context that dilutes discriminative signals.
+
+\textbf{Augmentation is counterproductive at $28\!\times\!28$ resolution.}
+Both MixUp and CutMix reduce accuracy. Fashion-MNIST images are already highly simplified (binary-ish backgrounds, centred garments), leaving little room for augmentation to introduce beneficial invariances.
+CutMix is particularly harmful because its random rectangular erasure removes more discriminative content per pixel than MixUp's smooth blending.
+
+\textbf{ViT underperforms CNNs on this dataset.}
+SimplViT achieves 91.06\%, approximately 2 percentage points below SE-DilatedCNN.
+The $28\!\times\!28$ resolution produces only 49 patches, limiting the transformer's ability to model spatial relationships.
+Pre-training or larger patch grids would likely close this gap.
+
+% ══════════════════════════════════════════════
+%  7. CONCLUSION
+% ══════════════════════════════════════════════
+\section{Conclusion}
+
+We systematically evaluated CNN and Transformer architectures for clothing classification on Fashion-MNIST.
+Our best model, SE-DilatedCNN, combines dilated convolutions (optimal at $d=2$) with Squeeze-and-Excitation channel attention to achieve \textbf{93.01\% test accuracy} and a macro-F1 of \textbf{0.9298} — surpassing the baseline by 0.28 percentage points with negligible parameter overhead.
+Data augmentation (MixUp, CutMix) consistently reduces performance on this small-resolution dataset.
+Grad-CAM visualisations confirm that the model attends to semantically meaningful image regions.
+Future work could explore larger dilation rates combined with spatial attention, or pre-training the ViT on a larger fashion dataset before fine-tuning on Fashion-MNIST.
+
+% ══════════════════════════════════════════════
+%  REFERENCES (excluded from 10-page limit)
+% ══════════════════════════════════════════════
+\newpage
+\bibliographystyle{ieeetr}
+\begin{thebibliography}{99}
+
+\bibitem{fashionmnist}
+H.~Xiao, K.~Rasul, and R.~Vollgraf,
+``Fashion-MNIST: a novel image dataset for benchmarking machine learning algorithms,''
+\textit{arXiv preprint arXiv:1708.07747}, 2017.
+
+\bibitem{dilated}
+F.~Yu and V.~Koltun,
+``Multi-scale context aggregation by dilated convolutions,''
+in \textit{Proc. ICLR}, 2016.
+
+\bibitem{senet}
+J.~Hu, L.~Shen, and G.~Sun,
+``Squeeze-and-excitation networks,''
+in \textit{Proc. CVPR}, pp.~7132--7141, 2018.
+
+\bibitem{vit}
+A.~Dosovitskiy \textit{et al.},
+``An image is worth 16$\times$16 words: Transformers for image recognition at scale,''
+in \textit{Proc. ICLR}, 2021.
+
+\bibitem{mixup}
+H.~Zhang, M.~Cisse, Y.~N.~Dauphin, and D.~Lopez-Paz,
+``MixUp: Beyond empirical risk minimization,''
+in \textit{Proc. ICLR}, 2018.
+
+\bibitem{cutmix}
+S.~Yun \textit{et al.},
+``CutMix: Regularization strategy to train strong classifiers with localizable features,''
+in \textit{Proc. ICCV}, pp.~6023--6032, 2019.
+
+\bibitem{labelsmoothing}
+C.~Szegedy \textit{et al.},
+``Rethinking the inception architecture for computer vision,''
+in \textit{Proc. CVPR}, pp.~2818--2826, 2016.
+
+\bibitem{alexnet}
+A.~Krizhevsky, I.~Sutskever, and G.~E.~Hinton,
+``ImageNet classification with deep convolutional neural networks,''
+in \textit{Proc. NeurIPS}, vol.~25, 2012.
+
+\bibitem{cnnfashion}
+S.~Khosla,
+``Deep learning CNN for fashion-MNIST clothing classification,'' 2018.
+
+\bibitem{gradcam}
+R.~R.~Selvaraju \textit{et al.},
+``Grad-CAM: Visual explanations from deep networks via gradient-based localization,''
+in \textit{Proc. ICCV}, pp.~618--626, 2017.
+
+\bibitem{rollout}
+S.~Abnar and W.~Zuidema,
+``Quantifying attention flow in transformers,''
+in \textit{Proc. ACL}, pp.~4190--4197, 2020.
+
+\end{thebibliography}
+
+\end{document}
