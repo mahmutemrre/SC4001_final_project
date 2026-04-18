@@ -6,14 +6,15 @@ Usage:
 """
 import time
 import torch
-from src.models import BaselineCNN, DilatedCNN, SimplViT
+from src.models import BaselineCNN, DilatedCNN, SE_DilatedCNN, SimplViT
 
 MODELS = [
-    ("BaselineCNN",    BaselineCNN()),
-    ("DilatedCNN d=1", DilatedCNN(dilation=1)),
-    ("DilatedCNN d=2", DilatedCNN(dilation=2)),
-    ("DilatedCNN d=3", DilatedCNN(dilation=3)),
-    ("SimplViT",       SimplViT()),
+    ("BaselineCNN",       BaselineCNN()),
+    ("DilatedCNN d=1",    DilatedCNN(dilation=1)),
+    ("DilatedCNN d=2",    DilatedCNN(dilation=2)),
+    ("DilatedCNN d=3",    DilatedCNN(dilation=3)),
+    ("SE-DilatedCNN d=2", SE_DilatedCNN(dilation=2)),
+    ("SimplViT",          SimplViT()),
 ]
 
 BATCH = torch.randn(64, 1, 28, 28)

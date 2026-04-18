@@ -18,12 +18,13 @@ from src.dataset import CLASSES
 
 # ── colour palette (one per model) ──────────────────────────────────────────
 PALETTE = {
-    "baseline": "#4C72B0",
-    "dilated":  "#DD8452",
-    "vit":      "#55A868",
+    "baseline":   "#4C72B0",
+    "dilated":    "#DD8452",
+    "se_dilated": "#C44E52",
+    "vit":        "#55A868",
 }
 ABLATION_PALETTE = {1: "#f4a261", 2: "#e76f51", 3: "#a8201a"}
-LINESTYLES = {"nomixup": "-", "mixup": "--"}
+LINESTYLES = {"nomixup": "-", "mixup": "--", "cutmix": ":"}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -43,31 +44,51 @@ def parse_tag(tag):
     """Parse experiment tag into (model, dilation, aug).
 
     Examples:
-      'baseline_nomixup'  → ('baseline', None, 'nomixup')
-      'dilated_d2_nomixup' → ('dilated', 2, 'nomixup')
+      'baseline_nomixup'        → ('baseline', None, 'nomixup')
+      'dilated_d2_nomixup'      → ('dilated', 2, 'nomixup')
+      'se_dilated_d2_mixup'     → ('se_dilated', 2, 'mixup')
+      'baseline_cutmix'         → ('baseline', None, 'cutmix')
     """
     parts = tag.split("_")
-    model = parts[0]
-    dilation_str = next((p for p in parts if p.startswith("d") and p[1:].isdigit()), None)
+
+    # Detect model name (may be two parts like "se_dilated")
+    if parts[0] == "se" and len(parts) > 1 and parts[1] == "dilated":
+        model = "se_dilated"
+        rest = parts[2:]
+    else:
+        model = parts[0]
+        rest = parts[1:]
+
+    dilation_str = next((p for p in rest if p.startswith("d") and p[1:].isdigit()), None)
     dilation = int(dilation_str[1:]) if dilation_str else None
-    aug = parts[-1] if parts[-1] in ("mixup", "nomixup") else "nomixup"
+
+    # Augmentation is the last known keyword (strip any label-smoothing suffix)
+    aug = "nomixup"
+    for p in rest:
+        if p in ("mixup", "nomixup", "cutmix"):
+            aug = p
     return model, dilation, aug
 
 
-def is_ablation(tag):
-    """Return True if this tag belongs to the dilation ablation study."""
-    _, dilation, _ = parse_tag(tag)
-    return dilation is not None
+# Tags produced by run_all.sh (the main model comparison experiments)
+MAIN_TAGS = {
+    "baseline_nomixup", "baseline_mixup",
+    "dilated_d2_nomixup", "dilated_d2_mixup",
+    "vit_nomixup", "vit_mixup",
+    "se_dilated_d2_nomixup", "se_dilated_d2_mixup",
+    "baseline_cutmix", "dilated_d2_cutmix", "se_dilated_d2_cutmix",
+}
 
 
 def main_experiments(data):
-    """Return only the 6 main experiments (no ablation tags)."""
-    return {t: v for t, v in data.items() if not is_ablation(t)}
+    """Return only the main comparison experiments."""
+    return {t: v for t, v in data.items() if t in MAIN_TAGS}
 
 
 def ablation_experiments(data):
-    """Return only the dilation ablation experiments."""
-    return {t: v for t, v in data.items() if is_ablation(t)}
+    """Return only the dilation ablation experiments (d=1, d=2, d=3)."""
+    return {t: v for t, v in data.items()
+            if t not in MAIN_TAGS and parse_tag(t)[1] is not None}
 
 
 def readable_label(tag):

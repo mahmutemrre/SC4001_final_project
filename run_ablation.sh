@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # run_ablation.sh — ablation study on dilation rate (d=1, 2, 3), no MixUp.
 # Isolates the effect of dilation by keeping everything else fixed.
+# Note: d=2 is also part of the main experiments; we include it here for
+#       a self-contained ablation, and the result file is simply overwritten.
 # Usage:  bash run_ablation.sh [--epochs 30]
 
 set -e

@@ -4,6 +4,7 @@ main.py — run experiments for SC4001 Fashion-MNIST project.
 Usage:
     python main.py --model baseline --epochs 30
     python main.py --model dilated  --epochs 30 --mixup
+    python main.py --model se_dilated --epochs 30 --cutmix
     python main.py --model vit      --epochs 30 --mixup
 """
 import argparse
@@ -14,15 +15,16 @@ import torch
 import torch.nn as nn
 
 from src.dataset import get_dataloaders, CLASSES
-from src.models import BaselineCNN, DilatedCNN, SimplViT
+from src.models import BaselineCNN, DilatedCNN, SE_DilatedCNN, SimplViT
 from src.train import train_one_epoch, evaluate
 from src.metrics import compute_confusion_matrix, per_class_accuracy, per_class_f1
 
 
 MODEL_MAP = {
-    "baseline": BaselineCNN,
-    "dilated":  DilatedCNN,
-    "vit":      SimplViT,
+    "baseline":   BaselineCNN,
+    "dilated":    DilatedCNN,
+    "se_dilated": SE_DilatedCNN,
+    "vit":        SimplViT,
 }
 
 
@@ -32,10 +34,17 @@ def parse_args():
     p.add_argument("--epochs",      type=int, default=30)
     p.add_argument("--batch_size",  type=int, default=64)
     p.add_argument("--lr",          type=float, default=1e-3)
-    p.add_argument("--mixup",       action="store_true")
+    # Augmentation flags (mutually exclusive: mixup OR cutmix, not both)
+    p.add_argument("--mixup",       action="store_true", help="Enable MixUp augmentation")
     p.add_argument("--mixup_alpha", type=float, default=0.4)
+    p.add_argument("--cutmix",      action="store_true", help="Enable CutMix augmentation")
+    p.add_argument("--cutmix_alpha", type=float, default=1.0)
+    # Regularisation
+    p.add_argument("--label_smoothing", type=float, default=0.0,
+                   help="Label smoothing factor (0 = hard labels)")
+    # Architecture
     p.add_argument("--dilation",    type=int,   default=2,
-                   help="Dilation rate for DilatedCNN block-2 (ignored for other models)")
+                   help="Dilation rate for DilatedCNN / SE_DilatedCNN block-2")
     p.add_argument("--data_dir",    default="./data")
     p.add_argument("--save_dir",    default="./models")
     return p.parse_args()
@@ -43,24 +52,42 @@ def parse_args():
 
 def main():
     args = parse_args()
+
+    if args.mixup and args.cutmix:
+        raise ValueError("Cannot use both --mixup and --cutmix at the same time.")
+
     device = torch.device("cuda" if torch.cuda.is_available() else
                           "mps"  if torch.backends.mps.is_available() else "cpu")
     print(f"Using device: {device}")
 
     train_loader, test_loader = get_dataloaders(args.data_dir, args.batch_size)
-    if args.model == "dilated":
+
+    # Instantiate model
+    if args.model in ("dilated", "se_dilated"):
         model = MODEL_MAP[args.model](dilation=args.dilation).to(device)
     else:
         model = MODEL_MAP[args.model]().to(device)
-    criterion = nn.CrossEntropyLoss()
+
+    criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
     os.makedirs(args.save_dir, exist_ok=True)
     os.makedirs("./results", exist_ok=True)
 
-    dilation_suffix = f"_d{args.dilation}" if args.model == "dilated" else ""
-    tag = f"{args.model}{dilation_suffix}_{'mixup' if args.mixup else 'nomixup'}"
+    # Build experiment tag (used for checkpoint & results filenames)
+    dilation_suffix = f"_d{args.dilation}" if args.model in ("dilated", "se_dilated") else ""
+    if args.mixup:
+        aug_tag = "mixup"
+    elif args.cutmix:
+        aug_tag = "cutmix"
+    else:
+        aug_tag = "nomixup"
+    ls_suffix = f"_ls{args.label_smoothing:.2f}".replace(".", "") if args.label_smoothing > 0 else ""
+    tag = f"{args.model}{dilation_suffix}_{aug_tag}{ls_suffix}"
+
+    print(f"Experiment: {tag}")
+    print(f"Model: {args.model} | Epochs: {args.epochs} | LR: {args.lr}")
 
     history = {"train_loss": [], "train_acc": [], "test_loss": [], "test_acc": []}
     best_acc = 0.0
@@ -68,7 +95,8 @@ def main():
     for epoch in range(1, args.epochs + 1):
         tr_loss, tr_acc = train_one_epoch(
             model, train_loader, optimizer, criterion, device,
-            use_mixup=args.mixup, mixup_alpha=args.mixup_alpha
+            use_mixup=args.mixup, mixup_alpha=args.mixup_alpha,
+            use_cutmix=args.cutmix, cutmix_alpha=args.cutmix_alpha,
         )
         te_loss, te_acc = evaluate(model, test_loader, criterion, device)
         scheduler.step()
@@ -90,12 +118,16 @@ def main():
     # Post-training: confusion matrix & per-class accuracy on the best checkpoint
     # -------------------------------------------------------------------------
     model.load_state_dict(torch.load(f"{args.save_dir}/{tag}_best.pth",
-                                     map_location=device))
+                                     map_location=device, weights_only=True))
     cm  = compute_confusion_matrix(model, test_loader, num_classes=10, device=device)
     pca = per_class_accuracy(cm)
     f1, macro_f1 = per_class_f1(cm)
 
     results = {
+        "tag": tag,
+        "model": args.model,
+        "augmentation": aug_tag,
+        "label_smoothing": args.label_smoothing,
         "history": history,
         "best_test_acc": best_acc,
         "macro_f1": float(f"{macro_f1:.4f}"),

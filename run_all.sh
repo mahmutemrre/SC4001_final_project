@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run_all.sh — train all 6 experiment configurations sequentially.
+# run_all.sh — train all experiment configurations sequentially.
 # Usage:  bash run_all.sh [--epochs 30]
 
 set -e
@@ -17,21 +17,28 @@ run() {
     python main.py "$@" --epochs "$EPOCHS"
 }
 
-# ── Baseline CNN ──────────────────────────────────────────
+# ── 1. Baseline CNN ──────────────────────────────────────────
 run --model baseline
 run --model baseline --mixup
+run --model baseline --cutmix
 
-# ── Dilated CNN ───────────────────────────────────────────
+# ── 2. Dilated CNN ───────────────────────────────────────────
 run --model dilated
 run --model dilated --mixup
+run --model dilated --cutmix
 
-# ── Simple ViT ────────────────────────────────────────────
+# ── 3. SE-Dilated CNN (novelty: channel attention) ───────────
+run --model se_dilated
+run --model se_dilated --mixup
+run --model se_dilated --cutmix
+
+# ── 4. Simple ViT ────────────────────────────────────────────
 run --model vit
 run --model vit --mixup
 
 echo ""
 echo "======================================================"
-echo " All experiments complete. Generating plots..."
+echo " All main experiments complete. Generating plots..."
 echo "======================================================"
 python plot_results.py
 
