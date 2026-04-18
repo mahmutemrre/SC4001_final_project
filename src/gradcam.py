@@ -75,28 +75,31 @@ def attention_rollout(model, x):
         if isinstance(output, tuple) and len(output) == 2:
             attentions.append(output[1].detach())  # (B, N, N)
 
+    # Patch forward to force need_weights=True so attention weights are returned
     hooks = []
+    original_forwards = []
     for module in model.modules():
         if isinstance(module, torch.nn.MultiheadAttention):
-            hooks.append(module.register_forward_hook(hook_fn))
+            orig_fwd = module.forward
+            original_forwards.append((module, orig_fwd))
 
-    # Need attention weights — set need_weights=True temporarily
-    orig_flags = []
-    for module in model.modules():
-        if isinstance(module, torch.nn.MultiheadAttention):
-            orig_flags.append(getattr(module, 'need_weights', True))
-            module.need_weights = True
+            def make_patched(orig):
+                def patched(*args, **kwargs):
+                    kwargs['need_weights'] = True
+                    kwargs['average_attn_weights'] = True
+                    return orig(*args, **kwargs)
+                return patched
+
+            module.forward = make_patched(orig_fwd)
+            hooks.append(module.register_forward_hook(hook_fn))
 
     model.eval()
     with torch.no_grad():
         _ = model(x)
 
-    # Restore flags and remove hooks
-    i = 0
-    for module in model.modules():
-        if isinstance(module, torch.nn.MultiheadAttention):
-            module.need_weights = orig_flags[i]
-            i += 1
+    # Restore original forwards and remove hooks
+    for module, orig_fwd in original_forwards:
+        module.forward = orig_fwd
     for h in hooks:
         h.remove()
 

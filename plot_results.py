@@ -86,9 +86,14 @@ def main_experiments(data):
 
 
 def ablation_experiments(data):
-    """Return only the dilation ablation experiments (d=1, d=2, d=3)."""
-    return {t: v for t, v in data.items()
-            if t not in MAIN_TAGS and parse_tag(t)[1] is not None}
+    """Return only the dilation ablation experiments (d=1, d=2, d=3).
+    Must be DilatedCNN (not SE), no augmentation."""
+    abl = {}
+    for t, v in data.items():
+        model, dilation, aug = parse_tag(t)
+        if model == "dilated" and dilation is not None and aug == "nomixup":
+            abl[t] = v
+    return abl
 
 
 def readable_label(tag):
