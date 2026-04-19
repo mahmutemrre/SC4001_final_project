@@ -1,10 +1,25 @@
+# Python
 __pycache__/
 *.py[cod]
-*.pth
-*.pt
-.DS_Store
-data/
-results/
-*.ipynb_checkpoints/
+*.egg-info/
 .env
 venv/
+
+# PyTorch checkpoints (large binaries)
+*.pth
+*.pt
+
+# Dataset (auto-downloaded on first run)
+data/
+
+# macOS
+.DS_Store
+
+# Submission zips & Overleaf working folder
+*.zip
+report_overleaf/
+CLAUDE.md
+CHANGELOG.md
+
+# Jupyter
+*.ipynb_checkpoints/
