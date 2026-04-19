@@ -109,9 +109,13 @@ def attention_rollout(model, x):
         return np.zeros((7, 7))  # fallback
 
     # Rollout: multiply attention matrices layer by layer
+    # Add identity to account for residual connections (Abnar & Zuidema, 2020)
     result = attentions[0].squeeze(0).cpu().numpy()  # (N, N)
+    I = np.eye(result.shape[0])
+    result = 0.5 * result + 0.5 * I
     for attn in attentions[1:]:
         attn_np = attn.squeeze(0).cpu().numpy()
+        attn_np = 0.5 * attn_np + 0.5 * I
         result = attn_np @ result
 
     # CLS token's attention over patch tokens (skip CLS→CLS)

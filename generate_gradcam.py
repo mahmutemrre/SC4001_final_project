@@ -63,22 +63,44 @@ def overlay_cam(img, cam, alpha=0.4):
 
 
 def find_checkpoints(models_dir):
-    """Find all *_best.pth files and parse model info from filenames."""
+    """Find all *_best.pth files and parse model info from filenames.
+
+    Returns dict mapping model_name -> (checkpoint_path, dilation).
+    Prefers nomixup + d=2 checkpoints (the best performing configs).
+    """
     checkpoints = {}
     for path in sorted(glob.glob(os.path.join(models_dir, "*_best.pth"))):
         basename = os.path.basename(path).replace("_best.pth", "")
-        # Parse model name from the tag
         parts = basename.split("_")
         if parts[0] == "se" and len(parts) > 1 and parts[1] == "dilated":
             model_name = "se_dilated"
+            rest = parts[2:]
         else:
             model_name = parts[0]
+            rest = parts[1:]
+
+        # Parse dilation from tag (e.g., "d2" -> 2)
+        dilation = 2  # default
+        for p in rest:
+            if p.startswith("d") and p[1:].isdigit():
+                dilation = int(p[1:])
+
+        is_nomixup = "nomixup" in rest
 
         if model_name in MODEL_MAP:
-            # Use the first checkpoint found for each model type
             if model_name not in checkpoints:
-                checkpoints[model_name] = path
-    return checkpoints
+                checkpoints[model_name] = (path, dilation, is_nomixup)
+            else:
+                _, prev_dil, prev_nomixup = checkpoints[model_name]
+                # Prefer nomixup over augmented, and d=2 for dilated models
+                better_aug = is_nomixup and not prev_nomixup
+                better_dil = (model_name in ("dilated", "se_dilated")
+                              and dilation == 2 and prev_dil != 2)
+                if better_aug or (is_nomixup == prev_nomixup and better_dil):
+                    checkpoints[model_name] = (path, dilation, is_nomixup)
+
+    # Strip the is_nomixup flag from return values
+    return {k: (v[0], v[1]) for k, v in checkpoints.items()}
 
 
 def main():
@@ -117,6 +139,11 @@ def main():
     n_models = len(checkpoints)
     n_samples = len(samples)
 
+    # Pre-load all models once (avoid reloading per sample)
+    loaded_models = {}
+    for model_name, (ckpt_path, dilation) in checkpoints.items():
+        loaded_models[model_name] = load_model(model_name, ckpt_path, dilation=dilation)
+
     # Create figure: rows = samples, cols = original + one per model
     fig, axes = plt.subplots(n_samples, n_models + 1,
                               figsize=(3 * (n_models + 1), 3 * n_samples))
@@ -136,8 +163,8 @@ def main():
                                labelpad=60, va="center")
         axes[i, 0].set_xticks([]); axes[i, 0].set_yticks([])
 
-        for j, (model_name, ckpt_path) in enumerate(checkpoints.items()):
-            model = load_model(model_name, ckpt_path)
+        for j, model_name in enumerate(checkpoints.keys()):
+            model = loaded_models[model_name]
 
             if model_name == "vit":
                 cam = attention_rollout(model, x)
