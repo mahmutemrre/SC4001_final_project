@@ -27,9 +27,11 @@ class GradCAM:
         target_layer.register_full_backward_hook(self._save_gradient)
 
     def _save_activation(self, module, input, output):
+        """Forward hook: cache target layer's output activations."""
         self.activations = output.detach()
 
     def _save_gradient(self, module, grad_input, grad_output):
+        """Backward hook: cache gradients flowing into target layer."""
         self.gradients = grad_output[0].detach()
 
     @torch.enable_grad()

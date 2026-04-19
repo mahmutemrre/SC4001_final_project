@@ -1,8 +1,9 @@
 """
-Model definitions:
-  - BaselineCNN   : simple CNN baseline
-  - DilatedCNN    : CNN with dilated convolutions (novelty component)
-  - SimplViT      : lightweight Vision Transformer
+Model definitions for Fashion-MNIST clothing classification:
+  - BaselineCNN    : standard two-block CNN baseline
+  - DilatedCNN     : CNN with dilated convolutions in block 2
+  - SE_DilatedCNN  : DilatedCNN + Squeeze-and-Excitation channel attention (novelty)
+  - SimplViT       : lightweight Vision Transformer (patch-based)
 """
 import torch
 import torch.nn as nn
@@ -96,10 +97,11 @@ class SEBlock(nn.Module):
         )
 
     def forward(self, x):
+        """Apply channel attention: pool → excite → scale."""
         b, c, _, _ = x.size()
-        w = self.pool(x).view(b, c)
-        w = self.fc(w).view(b, c, 1, 1)
-        return x * w
+        w = self.pool(x).view(b, c)          # squeeze: (B, C)
+        w = self.fc(w).view(b, c, 1, 1)      # excitation weights: (B, C, 1, 1)
+        return x * w                          # scale feature maps
 
 
 class SE_DilatedCNN(nn.Module):
@@ -151,6 +153,8 @@ class SE_DilatedCNN(nn.Module):
 # 4. Simple Vision Transformer (patch-based)
 # ---------------------------------------------------------------------------
 class PatchEmbedding(nn.Module):
+    """Split image into non-overlapping patches and project to embedding dim."""
+
     def __init__(self, img_size=28, patch_size=4, in_channels=1, embed_dim=128):
         super().__init__()
         self.proj = nn.Conv2d(in_channels, embed_dim, kernel_size=patch_size, stride=patch_size)
@@ -159,6 +163,7 @@ class PatchEmbedding(nn.Module):
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))
 
     def forward(self, x):
+        """Patchify, project, prepend CLS token, add positional embeddings."""
         x = self.proj(x).flatten(2).transpose(1, 2)          # (B, N, D)
         cls = self.cls_token.expand(x.size(0), -1, -1)
         x = torch.cat([cls, x], dim=1) + self.pos_embed

@@ -29,6 +29,7 @@ MODEL_MAP = {
 
 
 def parse_args():
+    """Parse command-line arguments for model, training, and augmentation settings."""
     p = argparse.ArgumentParser()
     p.add_argument("--model",       default="baseline", choices=MODEL_MAP.keys())
     p.add_argument("--epochs",      type=int, default=30)
@@ -51,6 +52,7 @@ def parse_args():
 
 
 def main():
+    """Train a model on Fashion-MNIST, evaluate, and save results to JSON."""
     args = parse_args()
 
     if args.mixup and args.cutmix:
